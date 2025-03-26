@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:13
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - poc-network
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    restart: always
+    ports:
+      - "8501:8501"
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/insurance_db
+    networks:
+      - poc-network
+    command: >
+      sh -c "python /train.py && streamlit run /app/main.py --server.address=0.0.0.0"
+
+  airflow:
+    image: apache/airflow:2.5.0
+    restart: always
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/airflow_db
+      AIRFLOW__WEBSERVER__RBAC: "True"
+      _AIRFLOW_WWW_USER_USERNAME: "admin"
+      _AIRFLOW_WWW_USER_PASSWORD: "admin"
+    volumes:
+      - ./airflow/dags:/usr/local/airflow/dags
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+    networks:
+      - poc-network
+    command: >
+      sh -c "sleep 10 &&
+             airflow db init &&
+             airflow users create --role Admin --username admin --password admin --firstname Admin --lastname User --email admin@example.com &&
+             airflow webserver"
+
+volumes:
+  postgres_data:
+
+networks:
+  poc-network:
+    driver: bridge
